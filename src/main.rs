@@ -14,12 +14,24 @@ struct Background {
     real: Handle<Image>,
 }
 
+#[derive(Component)]
+enum Collider {
+    Solid,
+    Area,
+}
+
+#[derive(Component)]
+struct Bed {
+    id: u8,
+}
+
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
         .add_startup_system(load_sprite)
         .add_system(keyboard_input)
         .add_system(player_movement)
+        .add_system(switch_system)
         .run();
 }
 
@@ -32,11 +44,11 @@ fn load_sprite(mut commands: Commands, server: Res<AssetServer>) {
     let bg_handle = server.load("real.png");
     let bed_handle = server.load("bed.png");
 
-    //spawn real world texture
+    //spawn real world textures
     commands
         .spawn_bundle(SpriteBundle {
-           texture: bg_handle,
-           ..Default::default()
+            texture: bg_handle,
+            ..Default::default()
         })
         .insert(Background {
             real: server.load("real.png"),
@@ -46,9 +58,14 @@ fn load_sprite(mut commands: Commands, server: Res<AssetServer>) {
     commands
         .spawn_bundle(SpriteBundle {
             texture: bed_handle,
+            transform: Transform {
+                translation: Vec3::new(500.0, 0.0, 0.0),
+                ..Default::default()
+            },
             ..Default::default()
-        });
-
+        })
+        .insert(Bed { id: 1 })
+        .insert(Collider::Area);
 
     //spawn player texture
     commands
@@ -67,13 +84,9 @@ fn load_sprite(mut commands: Commands, server: Res<AssetServer>) {
             location: Vec3::ZERO,
             velocity: Vec3::ZERO,
         });
-
 }
 
-fn keyboard_input(
-    mut player_query: Query<(&mut Movement)>,
-    keys: Res<Input<KeyCode>>,
-) {
+fn keyboard_input(mut player_query: Query<(&mut Movement)>, keys: Res<Input<KeyCode>>) {
     //Single query for movement component in player entity
     let mut movement = player_query.single_mut();
     //Clear velocities to zero
@@ -90,12 +103,46 @@ fn keyboard_input(
     }
 }
 
+fn switch_system(
+    //bed_query: Query<(&Bed, &Transform)>,
+    keys: Res<Input<KeyCode>>,
+    player_query: Query<(&Transform, &Sprite), With<Movement>>,
+    mut bg_query: Query<(&mut Handle<Image>, &mut Background)>,
+    collider_query: Query<(Entity, &Collider, &Transform, &Sprite)>,
+) {
+    let (mut bg_texture, bg_background) = bg_query.single_mut();
+    //let (bed, bed_transform) = bed_query.single();
+    let (player_transform, player_sprite) = player_query.single();
+//    let bed_size = bed_transform.scale.truncate();
+
+    for (_collider_entity, collider, transform, _sprite) in collider_query.iter(){
+        let collision = collide(
+                player_transform.translation,
+                player_sprite.custom_size.unwrap_or(Vec2::new(256.0, 144.0) /3.5),
+                transform.translation,
+                Vec2::new(100.0, 200.0),
+            );
+
+        if let Some(_collision) = collision {
+            //area collision into bed
+            if let Collider::Area = *collider {
+            //switch to dream
+               *bg_texture = bg_background.dream.clone(); 
+            }
+        }
+    }
+
+    if keys.just_pressed(KeyCode::R) {
+        *bg_texture = bg_background.real.clone();
+    }
+}
+
 fn player_movement(mut player_query: Query<(&mut Transform, &mut Movement), With<Movement>>) {
     //update transform movement here
     let (mut transform, mut movement) = player_query.single_mut();
     //Only normalize if there is movement
     if movement.velocity != Vec3::ZERO {
-    //Normalize vector velocities in any direction
+        //Normalize vector velocities in any direction
         let player_velocity = movement.velocity.normalize();
         //change or adjust movement speed here
         let speed_scale = 1.5;
